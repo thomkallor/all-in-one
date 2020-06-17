@@ -1,4 +1,6 @@
-FROM nvidia/cuda:8.0-cudnn5-devel-ubuntu14.04
+FROM nvidia/cuda:10.2-cudnn7-devel-ubuntu18.04
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 MAINTAINER Sai Soundararaj <saip@outlook.com>
 
@@ -32,8 +34,6 @@ RUN apt-get update && apt-get install -y \
 		liblcms2-dev \
 		libopenblas-dev \
 		liblapack-dev \
-		libopenjpeg2 \
-		libpng12-dev \
 		libssl-dev \
 		libtiff5-dev \
 		libwebp-dev \
@@ -53,7 +53,6 @@ RUN apt-get update && apt-get install -y \
 		libwebp-dev \
 		libpng-dev \
 		libtiff5-dev \
-		libjasper-dev \
 		libopenexr-dev \
 		libgdal-dev \
 		libdc1394-22-dev \
@@ -80,12 +79,11 @@ RUN apt-get update && apt-get install -y \
 		ant \
 		default-jdk \
 		doxygen \
+		sudo \
 		&& \
 	apt-get clean && \
 	apt-get autoremove && \
-	rm -rf /var/lib/apt/lists/* && \
-# Link BLAS library to use OpenBLAS using the alternatives mechanism (https://www.scipy.org/scipylib/building/linux.html#debian-ubuntu)
-	update-alternatives --set libblas.so.3 /usr/lib/openblas-base/libblas.so.3
+	rm -rf /var/lib/apt/lists/*
 
 # Install pip
 RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
@@ -137,41 +135,6 @@ RUN pip --no-cache-dir install \
 	https://storage.googleapis.com/tensorflow/linux/${TENSORFLOW_ARCH}/tensorflow_${TENSORFLOW_ARCH}-${TENSORFLOW_VERSION}-cp27-none-linux_x86_64.whl
 
 
-# Install dependencies for Caffe
-RUN apt-get update && apt-get install -y \
-		libboost-all-dev \
-		libgflags-dev \
-		libgoogle-glog-dev \
-		libhdf5-serial-dev \
-		libleveldb-dev \
-		liblmdb-dev \
-		libopencv-dev \
-		libprotobuf-dev \
-		libsnappy-dev \
-		protobuf-compiler \
-		&& \
-	apt-get clean && \
-	apt-get autoremove && \
-	rm -rf /var/lib/apt/lists/*
-
-# Install Caffe
-RUN git clone -b ${CAFFE_VERSION} --depth 1 https://github.com/BVLC/caffe.git /root/caffe && \
-	cd /root/caffe && \
-	cat python/requirements.txt | xargs -n1 pip install && \
-	mkdir build && cd build && \
-	cmake -DUSE_CUDNN=1 -DBLAS=Open .. && \
-	make -j"$(nproc)" all && \
-	make install
-
-# Set up Caffe environment variables
-ENV CAFFE_ROOT=/root/caffe
-ENV PYCAFFE_ROOT=$CAFFE_ROOT/python
-ENV PYTHONPATH=$PYCAFFE_ROOT:$PYTHONPATH \
-	PATH=$CAFFE_ROOT/build/tools:$PYCAFFE_ROOT:$PATH
-
-RUN echo "$CAFFE_ROOT/build/lib" >> /etc/ld.so.conf.d/caffe.conf && ldconfig
-
-
 # Install Theano and set up Theano config (.theanorc) for CUDA and OpenBLAS
 RUN pip --no-cache-dir install git+git://github.com/Theano/Theano.git@${THEANO_VERSION} && \
 	\
@@ -191,34 +154,6 @@ RUN pip --no-cache-dir install git+git://github.com/fchollet/keras.git@${KERAS_V
 RUN pip --no-cache-dir install git+git://github.com/Lasagne/Lasagne.git@${LASAGNE_VERSION}
 
 
-# Install Torch
-RUN git clone https://github.com/torch/distro.git /root/torch --recursive && \
-	cd /root/torch && \
-	bash install-deps && \
-	yes no | ./install.sh
-
-# Export the LUA evironment variables manually
-ENV LUA_PATH='/root/.luarocks/share/lua/5.1/?.lua;/root/.luarocks/share/lua/5.1/?/init.lua;/root/torch/install/share/lua/5.1/?.lua;/root/torch/install/share/lua/5.1/?/init.lua;./?.lua;/root/torch/install/share/luajit-2.1.0-beta1/?.lua;/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua' \
-	LUA_CPATH='/root/.luarocks/lib/lua/5.1/?.so;/root/torch/install/lib/lua/5.1/?.so;./?.so;/usr/local/lib/lua/5.1/?.so;/usr/local/lib/lua/5.1/loadall.so' \
-	PATH=/root/torch/install/bin:$PATH \
-	LD_LIBRARY_PATH=/root/torch/install/lib:$LD_LIBRARY_PATH \
-	DYLD_LIBRARY_PATH=/root/torch/install/lib:$DYLD_LIBRARY_PATH
-ENV LUA_CPATH='/root/torch/install/lib/?.so;'$LUA_CPATH
-
-# Install the latest versions of nn, cutorch, cunn, cuDNN bindings and iTorch
-RUN luarocks install nn && \
-	luarocks install cutorch && \
-	luarocks install cunn && \
-    luarocks install loadcaffe && \
-	\
-	cd /root && git clone https://github.com/soumith/cudnn.torch.git && cd cudnn.torch && \
-	git checkout R4 && \
-	luarocks make && \
-	\
-	cd /root && git clone https://github.com/facebook/iTorch.git && \
-	cd iTorch && \
-	luarocks make
-
 # Install OpenCV
 RUN git clone --depth 1 https://github.com/opencv/opencv.git /root/opencv && \
 	cd /root/opencv && \
@@ -235,6 +170,177 @@ COPY jupyter_notebook_config.py /root/.jupyter/
 
 # Jupyter has issues with being run directly: https://github.com/ipython/ipython/issues/7062
 COPY run_jupyter.sh /root/
+
+## CUDA 8.0 Installation
+
+RUN wget https://developer.nvidia.com/compute/cuda/8.0/Prod2/local_installers/cuda-repo-ubuntu1604-8-0-local-ga2_8.0.61-1_amd64-deb
+
+RUN yes | dpkg -i ./cuda-repo-ubuntu1604-8-0-local-ga2_8.0.61-1_amd64-deb
+
+RUN apt-get update
+
+RUN apt-get install -y cuda=8.0.61-1
+
+RUN rm cuda-repo-ubuntu1604-8-0-local-ga2_8.0.61-1_amd64-deb
+
+## CudNN5 installation
+
+RUN wget http://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu1604/x86_64/libcudnn5_5.1.10-1+cuda8.0_amd64.deb && \
+	wget http://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu1604/x86_64/libcudnn5-dev_5.1.10-1+cuda8.0_amd64.deb
+
+RUN yes | dpkg -i ./libcudnn5_5.1.10-1+cuda8.0_amd64.deb && \
+	yes | dpkg -i ./libcudnn5-dev_5.1.10-1+cuda8.0_amd64.deb
+
+RUN apt-get update && apt-get install -y libcudnn5-dev
+
+RUN rm libcudnn5_5.1.10-1+cuda8.0_amd64.deb && \
+	rm libcudnn5-dev_5.1.10-1+cuda8.0_amd64.deb
+
+# Install dependencies for Caffe
+RUN apt-get update && apt-get install -y \
+		libboost-all-dev \
+		libgflags-dev \
+		libgoogle-glog-dev \
+		libhdf5-serial-dev \
+		libleveldb-dev \
+		liblmdb-dev \
+		libopencv-dev \
+		libprotobuf-dev \
+		libsnappy-dev \
+		protobuf-compiler \
+		&& \
+	apt-get clean && \
+	apt-get autoremove && \
+	rm -rf /var/lib/apt/lists/*
+
+# update alternatives of gcc, gcc-4.9 required for torch installation
+
+RUN wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-4.9/libasan1_4.9.3-13ubuntu2_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-4.9/cpp-4.9_4.9.3-13ubuntu2_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-4.9/libgcc-4.9-dev_4.9.3-13ubuntu2_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/main/m/mpfr4/libmpfr4_3.1.4-1_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-4.9/gcc-4.9-base_4.9.3-13ubuntu2_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-4.9/gcc-4.9_4.9.3-13ubuntu2_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-4.9/libstdc++-4.9-dev_4.9.3-13ubuntu2_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-4.9/g++-4.9_4.9.3-13ubuntu2_amd64.deb
+
+RUN dpkg -i libmpfr4_3.1.4-1_amd64.deb \
+	gcc-4.9-base_4.9.3-13ubuntu2_amd64.deb \
+	cpp-4.9_4.9.3-13ubuntu2_amd64.deb \
+	libasan1_4.9.3-13ubuntu2_amd64.deb \
+	libgcc-4.9-dev_4.9.3-13ubuntu2_amd64.deb \
+	gcc-4.9_4.9.3-13ubuntu2_amd64.deb \
+	libstdc++-4.9-dev_4.9.3-13ubuntu2_amd64.deb \
+	g++-4.9_4.9.3-13ubuntu2_amd64.deb
+
+RUN rm libmpfr4_3.1.4-1_amd64.deb \
+	gcc-4.9-base_4.9.3-13ubuntu2_amd64.deb \
+	cpp-4.9_4.9.3-13ubuntu2_amd64.deb \
+	libasan1_4.9.3-13ubuntu2_amd64.deb \
+	libgcc-4.9-dev_4.9.3-13ubuntu2_amd64.deb \
+	gcc-4.9_4.9.3-13ubuntu2_amd64.deb \
+	libstdc++-4.9-dev_4.9.3-13ubuntu2_amd64.deb \
+	g++-4.9_4.9.3-13ubuntu2_amd64.deb
+
+# update alternatives of gcc, gcc-5 required for caffe installation
+
+RUN wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-5/libmpx0_5.5.0-12ubuntu1_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-5/libasan2_5.5.0-12ubuntu1_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-5/gcc-5-base_5.5.0-12ubuntu1_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-5/cpp-5_5.5.0-12ubuntu1_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-5/libgcc-5-dev_5.5.0-12ubuntu1_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/i/isl-0.18/libisl15_0.18-4_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-5/gcc-5_5.5.0-12ubuntu1_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-5/libstdc++-5-dev_5.5.0-12ubuntu1_amd64.deb && \
+	wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-5/g++-5_5.5.0-12ubuntu1_amd64.deb
+
+RUN dpkg -i ./cpp-5_5.5.0-12ubuntu1_amd64.deb \
+    ./libmpx0_5.5.0-12ubuntu1_amd64.deb \
+    ./libasan2_5.5.0-12ubuntu1_amd64.deb \
+    ./libisl15_0.18-4_amd64.deb \
+    ./libgcc-5-dev_5.5.0-12ubuntu1_amd64.deb \
+    ./gcc-5-base_5.5.0-12ubuntu1_amd64.deb \
+    ./gcc-5_5.5.0-12ubuntu1_amd64.deb \
+    ./libstdc++-5-dev_5.5.0-12ubuntu1_amd64.deb \
+    ./g++-5_5.5.0-12ubuntu1_amd64.deb
+
+RUN rm ./cpp-5_5.5.0-12ubuntu1_amd64.deb \
+    ./libmpx0_5.5.0-12ubuntu1_amd64.deb \
+    ./libasan2_5.5.0-12ubuntu1_amd64.deb \
+    ./libisl15_0.18-4_amd64.deb \
+    ./libgcc-5-dev_5.5.0-12ubuntu1_amd64.deb \
+    ./gcc-5-base_5.5.0-12ubuntu1_amd64.deb \
+    ./gcc-5_5.5.0-12ubuntu1_amd64.deb \
+    ./libstdc++-5-dev_5.5.0-12ubuntu1_amd64.deb \
+    ./g++-5_5.5.0-12ubuntu1_amd64.deb
+
+# assign higher priority to gcc-5 caffe uses gcc-5
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-5 100 && \
+	update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 75 && \
+	update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 50
+
+# Install Caffe
+RUN git clone -b ${CAFFE_VERSION} --depth 1 https://github.com/thomkallor/caffe.git /root/caffe && \
+	cd /root/caffe && \
+	cat python/requirements.txt | xargs -n1 pip install && \
+	mkdir build && cd build && \
+	cmake -DUSE_CUDNN=1 -DBLAS=Open .. && \
+	make -j"$(nproc)" all && \
+	make install
+
+# Set up Caffe environment variables
+ENV CAFFE_ROOT=/root/caffe
+ENV PYCAFFE_ROOT=$CAFFE_ROOT/python
+ENV PYTHONPATH=$PYCAFFE_ROOT:$PYTHONPATH \
+	PATH=$CAFFE_ROOT/build/tools:$PYCAFFE_ROOT:$PATH
+
+RUN echo "$CAFFE_ROOT/build/lib" >> /etc/ld.so.conf.d/caffe.conf && ldconfig
+
+# assign higher priority to gcc-5 caffe uses gcc-5
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 100 && \
+	update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-5 75 && \
+	update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 50
+
+# Install Torch
+RUN git clone https://github.com/thomkallor/distro.git /root/torch --recursive && \
+	cd /root/torch && \
+	bash install-deps && \
+	yes no | ./install.sh
+
+# Export the LUA evironment variables manually
+ENV LUA_PATH='/root/.luarocks/share/lua/5.1/?.lua;/root/.luarocks/share/lua/5.1/?/init.lua;/root/torch/install/share/lua/5.1/?.lua;/root/torch/install/share/lua/5.1/?/init.lua;./?.lua;/root/torch/install/share/luajit-2.1.0-beta1/?.lua;/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua' \
+	LUA_CPATH='/root/.luarocks/lib/lua/5.1/?.so;/root/torch/install/lib/lua/5.1/?.so;./?.so;/usr/local/lib/lua/5.1/?.so;/usr/local/lib/lua/5.1/loadall.so' \
+	PATH=/root/torch/install/bin:$PATH \
+	LD_LIBRARY_PATH=/root/torch/install/lib:$LD_LIBRARY_PATH \
+	DYLD_LIBRARY_PATH=/root/torch/install/lib:$DYLD_LIBRARY_PATH
+ENV LUA_CPATH='/root/torch/install/lib/?.so;'$LUA_CPATH
+
+# Install the latest versions of nn, cutorch, cunn, cuDNN bindings and iTorch
+RUN luarocks install nn && \
+	luarocks install cutorch && \
+	luarocks install cunn && \
+    luarocks install loadcaffe
+
+RUN cd /root && git clone https://github.com/soumith/cudnn.torch.git && cd cudnn.torch && \
+	git checkout R4 && \
+	luarocks make
+
+# Install the latest version of iTorch and its dependencies
+RUN apt-get install -y prosody libzmq3-dev libssl1.0-dev python-zmq
+
+RUN	luarocks install lbase64 && \
+	luarocks install luacrypto && \
+	luarocks install uuid && \
+	luarocks install lzmq
+
+RUN	cd /root && git clone https://github.com/facebook/iTorch.git && \
+	cd iTorch && \
+	luarocks make
+
+# change default to gcc 7
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 50 && \
+	update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-5 75 && \
+	update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 100
 
 # Expose Ports for TensorBoard (6006), Ipython (8888)
 EXPOSE 6006 8888

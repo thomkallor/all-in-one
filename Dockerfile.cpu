@@ -1,4 +1,6 @@
-FROM ubuntu:14.04
+FROM ubuntu:18.04
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 MAINTAINER Sai Soundararaj <saip@outlook.com>
 
@@ -26,8 +28,6 @@ RUN apt-get update && apt-get install -y \
 		liblcms2-dev \
 		libopenblas-dev \
 		liblapack-dev \
-		libopenjpeg2 \
-		libpng12-dev \
 		libssl-dev \
 		libtiff5-dev \
 		libwebp-dev \
@@ -47,7 +47,6 @@ RUN apt-get update && apt-get install -y \
 		libwebp-dev \
 		libpng-dev \
 		libtiff5-dev \
-		libjasper-dev \
 		libopenexr-dev \
 		libgdal-dev \
 		libdc1394-22-dev \
@@ -74,12 +73,11 @@ RUN apt-get update && apt-get install -y \
 		ant \
 		default-jdk \
 		doxygen \
+		sudo \
 		&& \
 	apt-get clean && \
 	apt-get autoremove && \
-	rm -rf /var/lib/apt/lists/* && \
-# Link BLAS library to use OpenBLAS using the alternatives mechanism (https://www.scipy.org/scipylib/building/linux.html#debian-ubuntu)
-	update-alternatives --set libblas.so.3 /usr/lib/openblas-base/libblas.so.3
+	rm -rf /var/lib/apt/lists/*
 
 # Install pip
 RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
@@ -187,7 +185,7 @@ RUN pip --no-cache-dir install git+git://github.com/Lasagne/Lasagne.git@${LASAGN
 
 
 # Install Torch
-RUN git clone https://github.com/torch/distro.git /root/torch --recursive && \
+RUN git clone https://github.com/thomkallor/distro.git /root/torch --recursive && \
 	cd /root/torch && \
 	bash install-deps && \
 	yes no | ./install.sh
@@ -200,13 +198,20 @@ ENV LUA_PATH='/root/.luarocks/share/lua/5.1/?.lua;/root/.luarocks/share/lua/5.1/
 	DYLD_LIBRARY_PATH=/root/torch/install/lib:$DYLD_LIBRARY_PATH
 ENV LUA_CPATH='/root/torch/install/lib/?.so;'$LUA_CPATH
 
-# Install the latest versions of nn, and iTorch
-RUN luarocks install nn && \
-    luarocks install loadcaffe && \
-	\
-	cd /root && git clone https://github.com/facebook/iTorch.git && \
-	cd iTorch && \
-	luarocks make
+
+# Install the latest version of iTorch, nn, loadcaffe and its dependencies
+RUN apt-get install -y prosody libzmq3-dev libssl1.0-dev python-zmq
+
+RUN	luarocks install lbase64 && \
+	luarocks install luacrypto && \
+	luarocks install uuid && \
+	luarocks install lzmq && \
+	luarocks install nn && \
+	luarocks install loadcaffe
+
+RUN cd /root && git clone https://github.com/facebook/iTorch.git
+
+RUN cd /root/iTorch && luarocks make
 
 # Install OpenCV
 RUN git clone --depth 1 https://github.com/opencv/opencv.git /root/opencv && \
@@ -218,7 +223,6 @@ RUN git clone --depth 1 https://github.com/opencv/opencv.git /root/opencv && \
 	make install && \
 	ldconfig && \
 	echo 'ln /dev/null /dev/raw1394' >> ~/.bashrc
-
 
 # Set up notebook config
 COPY jupyter_notebook_config.py /root/.jupyter/
